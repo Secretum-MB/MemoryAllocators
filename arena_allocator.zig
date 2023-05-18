@@ -2,9 +2,21 @@
 // Linear Allocation, or Arena Allocator
 //
 
+ // This is the simplest of the allocators included here. You initialize it
+ // by providing backing memory and ask for allocations of contigeous memory
+ // from that backing memory. A previous offset stores the start of the most
+ // recent given out allocation. A current offset indicates The ending address
+ // of the last allocation. This allocator does not allow you to free memory,
+ // but read on about the Temp Arena Save Points for a way of achieving this.
+ // It does allow you to resize allocations as well. If you are resizing the
+ // most recent allocation, it tries to shrink or expand that allocation by
+ // adjusting the current offset. Otherwise, it creates a brand new allocation.
+ // Important to remember that each allocation must be aligned to the proper
+ // alignment of the type of data you wish to store in your allocations. Aside:
+ // below I use old-school C-style code. In Zig we should use methods instead.
+
 const std = @import("std");
 const assert = std.debug.assert;
-
 
 /////////////////////////////
 // NOTE(mathias): HELPER functions
@@ -85,10 +97,9 @@ pub fn arena_alloc(a: *Arena, comptime T: type, count: u32) ![]T
 
   if (curr_int_aligned + requested_memory <= mem_end_int) {
     const padding = @truncate(u32, curr_int_aligned - curr_int);
-    const curr_ptr_aligned = @intToPtr([*]T, curr_int_aligned);
     a.prev_offset = a.curr_offset + padding;
     a.curr_offset += requested_memory + padding;
-    return curr_ptr_aligned[0..count];
+    return @intToPtr([*]T, curr_int_aligned)[0..count];
   } else {
     return error.NotEnoughMemory;
   }

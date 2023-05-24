@@ -1,5 +1,6 @@
 //
-// Linear Allocation, or Arena Allocator
+// Linear Allocation
+//  (also called: Arena/Monotonic/Skratch Allocator)
 //
 
  // This is the simplest of the allocators included here. You initialize it

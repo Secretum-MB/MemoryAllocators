@@ -39,7 +39,7 @@ pub fn debugPrintMem(memory: anytype, comptime format_char: u8) void {
   for (0..136) |_| print("{s}", .{ "-" });
   print("\n", .{});
 
-  const size_of_elem = @sizeOf(@typeInfo(@TypeOf(memory)).Pointer.child);
+  const size_of_elem = @sizeOf(@typeInfo(@TypeOf(memory)).Pointer.child); // wrong for arrays?
   var ptr_to_mem = @ptrToInt(memory.ptr);
   var remaining_bytes = size_of_elem * memory.len;
   var row_num: u32 = 0;
@@ -110,7 +110,7 @@ pub fn debugPrintMem(memory: anytype, comptime format_char: u8) void {
  // The basic init() function reserves virtual memory to the tune of
  // DEFAULT_RESERVE_SIZE. On Linux, memory is committed as pages are written to. The
  // various functions that set the offset backwards may potentially make a syscall
- // to decommit memory. All virtual memory is released when free() is called.
+ // to decommit memory. All virtual memory is released when release() is called.
 
  // I implemented the Zig std library Allocator interface for the Arena. I tested
  // that using it with std.ArrayList works well. It should work with the rest of
@@ -190,8 +190,6 @@ pub fn Arena() type
 
     pub fn push(self: *Self, comptime T: type, num_bytes: usize) ![]T
     {
-      std.debug.assert(num_bytes % @alignOf(T) == 0);
-
       const start_addr = @ptrToInt(self.base_memory.ptr) + self.curr_pos;
       const start_alig = mem.alignForward(start_addr, @alignOf(T));
       const end_mem = @ptrToInt(self.base_memory.ptr) + self.base_memory.len;
@@ -210,7 +208,7 @@ pub fn Arena() type
       return self.push(T, count * @sizeOf(T));
     }
 
-    pub fn popTo(self: *Self, pos: usize) !void
+    fn popTo(self: *Self, pos: usize) !void
     {
       if (pos > self.curr_pos) return error.CurrPositionBelowRequestedPosition;
 
@@ -326,3 +324,39 @@ pub fn Arena() type
     }
   };
 }
+
+
+
+/////////////////////////////
+// TODO(mathias): see this discussion: https://cs.stackexchange.com/questions/120946/quadratic-probing-infinite-loop
+// for dealing with the evenual need to grow the table.
+// we're not going to test the performance of growing (alloc new) table. So this todo pertains
+// to when we actually implement our own Hash Table
+
+
+/////////////////////////////
+// the point of segregating the data too is that there is no padding introduced so more of the actual,
+// data you want fit into the cache line. Placing metadata inside the buckets is a disaster as it takes
+// the padding of the larger of key/value, potentially 8 bytes will be needed to store 2 what is essentially,
+// just 2 bits of information (empty, full, tombstone).
+
+// NOTE(mathias): let's do 1) metadata and key/values together (so no dummie T); 
+// 2) metadata and key/values segregated (no dummies needed)
+//
+// I expect the variants that do not segregate wil be faster for individual finds as no cash eviction needed
+// for looking up a found items value, and remember probing strategy won't require us to look very far.
+// but what if you're doing operations in a loop.. if you segregate you could do something fancy like return
+// a list of all the inexes appropriate for the various insertions, then loop over the segregated values array
+// and populate values all at once.. this will not work if the arrays need to grow, in which case earlier keys
+// inserted will be placed into the new array at different indexes than what you saved in your return list.
+// (if we can ensureCapacity - easy enough, then this method is dope. (you'd want to sort the indexes)).
+// but realize that this too is just a win if we're not inserting but just doing retrievals!
+
+
+
+/////////////////////////////
+// TODO(mathias): if we implement with a power of two table size.. we can replace:
+// value % capacity, with value & (capacity -1).
+
+/////////////////////////////
+// TODO(mathias): build an api for pushArray but where we can pick custom alignment

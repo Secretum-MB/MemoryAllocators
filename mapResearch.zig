@@ -1,5 +1,6 @@
 //
 // Play with quadratic probing sequences
+// Then I build 4 Maps and do timing comparisons for the basic operations
 //
 
 const std = @import("std");
@@ -12,19 +13,7 @@ const base = @import("base.zig");
 const Arena = base.Arena();
 
 
-/////////////////////////////
-// TODO(mathias): Implement the ability to use either. We're going to want to see which actually,
-// performs better. I think cache eviction might be better for triangular, but clustering might be 
-// worse. I wonder too if growing by a factor of 2 each time is not expensive in terms of memory..
-
-
-/////////////////////////////
-// TODO(mathias): when we do timing tests, include the std libraries hashMap too (make sure to pre-request
-// the capacity we'll use)
-
-
-
-// fameous for its terrible clustering effects.. but i wonder if table large enough and hash
+// famous for its terrible clustering effects.. but i wonder if table large enough and hash
 // function good enough if this is simply not an issue.
 //
 fn linearProbe(i: i32) i32
@@ -44,10 +33,10 @@ fn triangularProbe(i: i32) i32
 
 // This is the simplest form of alternating quadratic probing simply alternating +-i^2.
 // Promises to visit all positions of the table, before any repeats, if the table size
-// conforms to the requirement of beign a prime number and congruent to 3 % 4, or 
+// conforms to the requirement of being a prime number and congruent to 3 % 4, or 
 // simply prime_table_size % 4 == 3
 // The questions are, can negative offsets cause additional cache misses? Is clustering
-// noticably better?
+// noticeably better?
 //
 fn alternatingProbe(i: i32) i32
 {
@@ -129,7 +118,7 @@ test "test: is it true that these probing strategies are non-cyclic and can't fa
 }
 
 
-// I coppied and pasted from std library: see hash_map.zig
+// I copied and pasted from std library: see hash_map.zig
 // this is their default hashMap hashing function for non-string keys
 fn hash(comptime T: type, key: T) u64
 {
@@ -194,40 +183,40 @@ fn insertionProbingPerformance(arena: *Arena, table_sizes: []const usize, load_f
   }
 }
 
-// test "probing count performance on table filling"
-// {
-//   var arena = try Arena.init();
-//   defer arena.release();
-//   const scratch = arena.getScratch();
+test "probing count performance on table filling"
+{
+  var arena = try Arena.init();
+  defer arena.release();
+  // const scratch = arena.getScratch();
 
-//   const load_factor = 0.66;
+  // const load_factor = 0.66;
 
-//   { // Linear probing: conclusion: significantly worse than the quadratic strategies
-//     // Load factor: 50% - mostly over 99% of insertions required less than 5 probes.
-//     // Load factor: 66% - We are in the 95-97% range even for small tables.
-//     // Load factor: 80% - many table sizes are in the 80-90%; larger tables have non-negl > 15!
-//     const table_sizes: [9]usize = .{ 1<<4, 1<<5, 1<<6, 1<<7, 1<<8, 1<<9, 1<<10, 1<<11, 1<<12};
-//     try insertionProbingPerformance(&arena, &table_sizes, load_factor, linearProbe, "LINEAR PROBING");
-//     arena.releaseScratch(scratch);
-//   }
+  { // Linear probing: conclusion: significantly worse than the quadratic strategies
+    // Load factor: 50% - mostly over 99% of insertions required less than 5 probes.
+    // Load factor: 66% - We are in the 95-97% range even for small tables.
+    // Load factor: 80% - many table sizes are in the 80-90%; larger tables have non-negl > 15!
+    // const table_sizes: [9]usize = .{ 1<<4, 1<<5, 1<<6, 1<<7, 1<<8, 1<<9, 1<<10, 1<<11, 1<<12};
+    // try insertionProbingPerformance(&arena, &table_sizes, load_factor, linearProbe, "LINEAR PROBING");
+    // arena.releaseScratch(scratch);
+  }
 
-//   { // Triangular probing: Not sure I can tell from these that its worse than Alternating
-//     // Load factor: 50% - over 99% of insertions required fewer than 5 probes.
-//     // Load factor: 66% - over 98% for small-medium tables; ~98% for large tables.
-//     // Load factor: 80% - 96-98% required the same, with lower performance at larger table sizes.
-//     const table_sizes: [9]usize = .{ 1<<4, 1<<5, 1<<6, 1<<7, 1<<8, 1<<9, 1<<10, 1<<11, 1<<12};
-//     try insertionProbingPerformance(&arena, &table_sizes, load_factor, triangularProbe, "TRIANGULAR PROBING");
-//     arena.releaseScratch(scratch);
-//   }
+  { // Triangular probing: Not sure I can tell from these that its worse than Alternating
+    // Load factor: 50% - over 99% of insertions required fewer than 5 probes.
+    // Load factor: 66% - over 98% for small-medium tables; ~98% for large tables.
+    // Load factor: 80% - 96-98% required the same, with lower performance at larger table sizes.
+    // const table_sizes: [9]usize = .{ 1<<4, 1<<5, 1<<6, 1<<7, 1<<8, 1<<9, 1<<10, 1<<11, 1<<12};
+    // try insertionProbingPerformance(&arena, &table_sizes, load_factor, triangularProbe, "TRIANGULAR PROBING");
+    // arena.releaseScratch(scratch);
+  }
 
-//   { // Alternating probing: seems as good if not a tiny amount better than triangular.
-//     // Load factor: 50% - over 99% for larger tables; ~100% for rest required fewer than 5 probes.
-//     // Load factor: 66% - over 99% for small - medium tables; ~98% for large tables.
-//     // Load factor: 80% - 96-97% fairly evenly throughout.
-//     const table_sizes: [9]usize = .{ 19, 31, 59, 107, 199, 491, 907, 2003, 4079 };    
-//     try insertionProbingPerformance(&arena, &table_sizes, load_factor, alternatingProbe, "ALTERNATING PROBING");
-//   }
-// }
+  { // Alternating probing: seems as good if not a tiny amount better than triangular.
+    // Load factor: 50% - over 99% for larger tables; ~100% for rest required fewer than 5 probes.
+    // Load factor: 66% - over 99% for small - medium tables; ~98% for large tables.
+    // Load factor: 80% - 96-97% fairly evenly throughout.
+    // const table_sizes: [9]usize = .{ 19, 31, 59, 107, 199, 491, 907, 2003, 4079 };    
+    // try insertionProbingPerformance(&arena, &table_sizes, load_factor, alternatingProbe, "ALTERNATING PROBING");
+  }
+}
 
 
 
@@ -360,7 +349,7 @@ pub fn MapCarruthTogether(comptime V: type) type
 }
 
 
-// no metadata. the keys and values are segregated into two seperate, contigeous arrays.
+// no metadata. the keys and values are segregated into two separate, contiguous arrays.
 // array of keys is array of pure keys, same with values. Two states from the key is
 // reserved for the 'bucket' states.
 //
@@ -466,35 +455,6 @@ pub fn MapDataOrientedTogether(comptime V: type) type
     available: u32,
     count: u32 = 0,
 
-    const Self = @This();
-
-    const Header = struct {
-      entries: [*]Entry,
-      capacity: u32,
-    };
-
-    const Metadata = packed struct {
-      fingerprint: u7 = 0,
-      used: u1 = 0,
-    
-      fn isEmpty(self: Metadata) bool {
-        return @bitCast(u8, self) == 0;
-      }
-
-      fn isFilled(self: Metadata) bool {
-        return self.used == 1;
-      }
-
-      fn fill(self: *Metadata, hashed: u64) void {
-        self.used = 1;
-        self.fingerprint = @truncate(u7, hashed >> (64-6)); // check for off by 1 errors
-      }
-
-      fn kill(self: *Metadata) void {
-        self.* = Metadata{ .fingerprint = 1, .used = 0 };
-      }
-    };
-
     comptime {
       std.debug.assert(@sizeOf(Metadata) == 1);
       std.debug.assert(@alignOf(Metadata) == 1);
@@ -502,41 +462,76 @@ pub fn MapDataOrientedTogether(comptime V: type) type
       std.debug.assert(@alignOf(Header) == 8);
     }
 
-    const Entry = packed struct { // packed only for debugging
+    const Self = @This();
+
+    const Header = struct {
+      entries: [*]Entry,
+      capacity: u32,
+    };
+
+    const Entry = struct {
       key: u32,
       value: V,
     };
 
+    const slot_empty = Metadata{ .fingerprint = 0, .used = 0 };
+    const slot_tombs = Metadata{ .fingerprint = 1, .used = 0 };
+
+    const Metadata = packed struct {
+      fingerprint: u7,
+      used: u1,
+
+      fn isEmpty(self: Metadata) bool {
+        return @bitCast(u8, self) == @bitCast(u8, slot_empty);
+      }
+
+      fn isFilled(self: Metadata) bool {
+        return self.used == 1;
+      }
+
+      fn isTombstone(self: Metadata) bool {
+        return @bitCast(u8, self) == @bitCast(u8, slot_tombs);
+      }
+
+      fn takeFingerprint(hashed: u64) u7 {
+        return @truncate(u7, hashed >> (64-7));
+      }
+
+      fn fill(self: *Metadata, fingerprint: u7) void {
+        self.used = 1;
+        self.fingerprint = fingerprint;
+      }
+
+      fn kill(self: *Metadata) void {
+        self.* = slot_tombs;
+      }
+    };
+
     pub fn init(arena: *Arena, num_buckets: u32) Self
     {
+      const header_align = @alignOf(Header);
+      const entry_align = @alignOf(Entry);
+      const max_align = comptime @max(header_align, entry_align);
+
       const header_start = 0;
       const meta_start = header_start + @sizeOf(Header);
       const meta_end = meta_start + (@sizeOf(Metadata) * num_buckets);
-      const entries_start = mem.alignForward(meta_end, @alignOf(Entry));
+      const entries_start = mem.alignForward(meta_end, entry_align);
       const entries_end = entries_start + (@sizeOf(Entry) * num_buckets);
-      const buffer_end = mem.alignForward(entries_end, @sizeOf(usize));
-
-      // make sure you get 8 byte aligned mem for header
+      const buffer_end = mem.alignForward(entries_end, max_align);
       const bytes_needed = buffer_end - header_start;
-
-      base.debugPrintD("numbytesneeded: ", bytes_needed);
-
-      const buffer = arena.push(usize, bytes_needed) catch unreachable;
-
-      const ptr_header = @ptrCast(*Header, buffer.ptr);
-      const ptr_metadata = @ptrCast([*]Metadata, buffer.ptr + (meta_start/8));
-      const ptr_entries = @ptrCast([*]Entry, buffer.ptr + (entries_start/8));
-
-      @memset(ptr_metadata[0..num_buckets], Metadata{ .fingerprint = 0b11, .used = 0});
       
-      // no need to do this since metadata negates the need to look here
-      // @memset(ptr_entries[0..num_buckets], Entry{.key=0xFFCCCCFF, .value=0xBBBBBBBB});
-      @memset(ptr_entries[0..num_buckets], Entry{.key=0xFFCCCCFF, .value=-1 });
+      const buffer = arena.pushArrayAligned(u8, max_align, bytes_needed) catch unreachable;
+      const ptr = @ptrToInt(buffer.ptr);
 
-      ptr_header.* = Header{
-        .entries = ptr_entries,
-        .capacity = num_buckets,
-      };
+      const ptr_header = @intToPtr(*Header, ptr);
+      const ptr_metadata = @intToPtr([*]Metadata, ptr + meta_start);
+      const ptr_entries = @intToPtr([*]Entry, ptr + entries_start);
+
+      ptr_header.entries = ptr_entries;
+      ptr_header.capacity = num_buckets;
+
+      @memset(ptr_metadata[0..num_buckets], slot_empty);
 
       return Self {
         .metadata = ptr_metadata,
@@ -544,15 +539,264 @@ pub fn MapDataOrientedTogether(comptime V: type) type
       };
     }
 
+    pub fn insertAssumeNoMember(self: *Self, key: u32, value: V,
+                                probe_strategy: *const fn(i32)i32) !void
+    {
+      const table_capacity = self.header().capacity;
+      const hashed = hash(u32, key);
+      const fingerprint = Metadata.takeFingerprint(hashed);
+      var probe_cnt: i32 = 0;
+      var idx = hashGivenPos(hashed, probe_strategy(probe_cnt), table_capacity);
+
+      while (self.metadata[idx].isFilled()) {
+        probe_cnt += 1;
+        idx = hashGivenPos(hashed, probe_strategy(probe_cnt), table_capacity);
+      }
+      self.metadata[idx].fill(fingerprint);
+      self.header().entries[idx] = Entry{ .key = key, .value = value };
+      self.count += 1;
+      self.available -= 1;
+    }
+
+    pub fn get(self: *Self, key: u32, probe_strategy: *const fn(i32)i32) !?V
+    {
+      const table_capacity = self.header().capacity;
+      const hashed = hash(u32, key);
+      const fingerprint = Metadata.takeFingerprint(hashed);
+      var probe_cnt: i32 = 0;
+      var idx = hashGivenPos(hashed, probe_strategy(probe_cnt), table_capacity);
+
+      while (!self.metadata[idx].isEmpty()) {
+        if (self.metadata[idx].isFilled() and 
+            fingerprint == self.metadata[idx].fingerprint)
+        {
+          if (key == self.header().entries[idx].key) {
+            return self.header().entries[idx].value;
+          }
+        }
+        probe_cnt += 1;
+        idx = hashGivenPos(hashed, probe_strategy(probe_cnt), table_capacity);
+      }
+
+      return null;
+    }
+
+    pub fn remove(self: *Self, key: u32, probe_strategy: *const fn(i32)i32) !bool
+    {
+      const table_capacity = self.header().capacity;
+      const hashed = hash(u32, key);
+      const fingerprint = Metadata.takeFingerprint(hashed);
+      var probe_cnt: i32 = 0;
+      var idx = hashGivenPos(hashed, probe_strategy(probe_cnt), table_capacity);
+
+      while (!self.metadata[idx].isEmpty()) {
+        if (self.metadata[idx].isFilled() and
+            fingerprint == self.metadata[idx].fingerprint)
+        {
+          if (key == self.header().entries[idx].key) {
+            self.metadata[idx].kill();
+            self.count -= 1;
+            self.available += 1;
+            return true;
+          }
+        }
+        probe_cnt += 1;
+        idx = hashGivenPos(hashed, probe_strategy(probe_cnt), table_capacity);
+      }
+
+      return false;
+    }
+
+    fn header(self: *Self) *Header
+    {
+      const make_align = @alignCast(@alignOf(Header), self.metadata);
+      const make_mutable = @ptrCast([*]Header, make_align); 
+      return @ptrCast(*Header, (make_mutable - 1)); // 1: in units of header size
+    }
+  };
+}
 
 
+// table with metadata array followed by separate arrays for keys and values.
+// This mirrors zig's std library HashMap
+//
+pub fn MapDataOrientedSeperate(comptime V: type) type
+{
+  return struct {
+    metadata: [*]Metadata,
+    available: u32,
+    count: u32 = 0,
+
+    comptime {
+      std.debug.assert(@sizeOf(Metadata) == 1);
+      std.debug.assert(@alignOf(Metadata) == 1);
+      std.debug.assert(@sizeOf(Header) == 24);
+      std.debug.assert(@alignOf(Header) == 8);
+    }
+
+    const Self = @This();
+
+    const Header = struct {
+      keys: [*]u32,
+      values: [*]V,
+      capacity: u32,
+    };
+
+    const slot_empty = Metadata{ .fingerprint = 0, .used = 0 };
+    const slot_tombs = Metadata{ .fingerprint = 1, .used = 0 };
+
+    const Metadata = packed struct {
+      fingerprint: u7,
+      used: u1,
+
+      fn isEmpty(self: Metadata) bool {
+        return @bitCast(u8, self) == @bitCast(u8, slot_empty);
+      }
+
+      fn isFilled(self: Metadata) bool {
+        return self.used == 1;
+      }
+
+      fn isTombstone(self: Metadata) bool {
+        return @bitCast(u8, self) == @bitCast(u8, slot_tombs);
+      }
+
+      fn takeFingerprint(hashed: u64) u7 {
+        return @truncate(u7, hashed >> (64-7));
+      }
+
+      fn fill(self: *Metadata, fingerprint: u7) void {
+        self.used = 1;
+        self.fingerprint = fingerprint;
+      }
+
+      fn kill(self: *Metadata) void {
+        self.* = slot_tombs;
+      }
+    };
+
+    pub fn init(arena: *Arena, num_buckets: u32) Self
+    {
+      const align_header: u32 = @alignOf(Header);
+      const align_key = @alignOf(u32);
+      const align_value = if (@sizeOf(V) == 0) 1 else @alignOf(V);
+      const max_align = comptime @max(align_header, @max(align_key, align_value));
+
+      const header_start = 0;
+      const meta_start = header_start + @sizeOf(Header);
+      const meta_end = meta_start + (@sizeOf(Metadata) * num_buckets);
+      const key_start = mem.alignForward(meta_end, align_key);
+      const key_end = key_start + (@sizeOf(u32) * num_buckets);
+      const value_start = mem.alignForward(key_end, align_value);
+      const value_end = value_start + (@sizeOf(V) * num_buckets);
+      const buffer_end = mem.alignForward(value_end, max_align);
+      const bytes_needed = buffer_end - header_start;
+
+      const buffer = arena.pushArrayAligned(u8, max_align, bytes_needed) catch unreachable;
+      const ptr = @ptrToInt(buffer.ptr);
+
+      const ptr_header = @intToPtr(*Header, ptr);
+      const ptr_metadata = @intToPtr([*]Metadata, ptr + meta_start);
+      const ptr_keys = @intToPtr([*]u32, ptr + key_start);
+      const ptr_values = @intToPtr([*]V, ptr + value_start);
+
+      ptr_header.capacity = num_buckets;
+      ptr_header.keys = ptr_keys;
+
+      if (@sizeOf([*]V) != 0) {
+        ptr_header.values = ptr_values;
+      }
+
+      @memset(ptr_metadata[0..num_buckets], slot_empty);
+
+      return Self {
+        .metadata = ptr_metadata,
+        .available = num_buckets,
+      };
+    }
+
+    pub fn insertAssumeNoMember(self: *Self, key: u32, value: V,
+                                probe_strategy: *const fn(i32)i32) !void
+    {
+      const table_capacity = self.header().capacity;
+      const hashed = hash(u32, key);
+      const fingerprint = Metadata.takeFingerprint(hashed);
+      var probe_cnt: i32 = 0;
+      var idx = hashGivenPos(hashed, probe_strategy(probe_cnt), table_capacity);
+
+      while (self.metadata[idx].isFilled()) {
+        probe_cnt += 1;
+        idx = hashGivenPos(hashed, probe_strategy(probe_cnt), table_capacity);
+      }
+      self.metadata[idx].fill(fingerprint);
+      self.header().keys[idx] = key;
+      self.header().values[idx] = value;
+      self.count += 1;
+      self.available -= 1;
+    }
+
+    pub fn get(self: *Self, key: u32, probe_strategy: *const fn(i32)i32) !?V
+    {
+      const table_capacity = self.header().capacity;
+      const hashed = hash(u32, key);
+      const fingerprint = Metadata.takeFingerprint(hashed);
+      var probe_cnt: i32 = 0;
+      var idx = hashGivenPos(hashed, probe_strategy(probe_cnt), table_capacity);
+
+      while (!self.metadata[idx].isEmpty()) {
+        if (self.metadata[idx].isFilled() and 
+            fingerprint == self.metadata[idx].fingerprint)
+        {
+          if (key == self.header().keys[idx]) {
+            return self.header().values[idx];
+          }
+        }
+        probe_cnt += 1;
+        idx = hashGivenPos(hashed, probe_strategy(probe_cnt), table_capacity);
+      }
+
+      return null;
+    }
+
+    pub fn remove(self: *Self, key: u32, probe_strategy: *const fn(i32)i32) !bool
+    {
+      const table_capacity = self.header().capacity;
+      const hashed = hash(u32, key);
+      const fingerprint = Metadata.takeFingerprint(hashed);
+      var probe_cnt: i32 = 0;
+      var idx = hashGivenPos(hashed, probe_strategy(probe_cnt), table_capacity);
+
+      while (!self.metadata[idx].isEmpty()) {
+        if (self.metadata[idx].isFilled() and
+            fingerprint == self.metadata[idx].fingerprint)
+        {
+          if (key == self.header().keys[idx]) {
+            self.metadata[idx].kill();
+            self.count -= 1;
+            self.available += 1;
+            return true;
+          }
+        }
+        probe_cnt += 1;
+        idx = hashGivenPos(hashed, probe_strategy(probe_cnt), table_capacity);
+      }
+
+      return false;
+    }
+
+    fn header(self: *Self) *Header
+    {
+      const make_align = @alignCast(@alignOf(Header), self.metadata);
+      const make_mutable = @ptrCast([*]Header, make_align); 
+      return @ptrCast(*Header, (make_mutable - 1)); // 1: in units of header size
+    }
   };
 }
 
 
 fn printTableMetadata(table: anytype) void {
   base.debugPrintD("\ncount   :", table.count);
-  // base.debugPrintD("capacity:", table.capacity);
+  base.debugPrintD("capacity:", table.capacity);
   base.debugPrintD("avaiable:", table.available);
 }
 
@@ -560,7 +804,7 @@ fn printTableMetadata(table: anytype) void {
 test "CarruthTogether" {
   var arena = try Arena.init();
 
-  const V: type = usize;
+  const V: type = u32;
   var foo = MapCarruthTogether(V).init(&arena, 128);
 
   for (2..98) |key| {
@@ -582,7 +826,7 @@ test "CarruthTogether" {
 test "CarruthSeperate" {
   var arena = try Arena.init();
 
-  const V: type = u32;
+  const V: type = usize;
   var map = MapCarruthSeperate(V).init(&arena, 128);
 
   for (2..98) |key| {
@@ -605,33 +849,79 @@ test "CarruthSeperate" {
 test "DataOrientedTogether" {
   var arena = try Arena.init();
 
-  const V: type = i16;
+  const V: type = u32;
   var map = MapDataOrientedTogether(V).init(&arena, 128);
 
+  for (0..100) |key| {
+    try map.insertAssumeNoMember(@intCast(u32, key), 0xCCCCCCCC, triangularProbe);
+  }
 
+  for (0..150) |key| {
+    _ = try map.get(@intCast(u32, key), triangularProbe);
+  }
 
+  for (0..150) |key| {
+    _ = try map.remove(@intCast(u32, key), triangularProbe);
+  }
 
   // shows where the map's memory region ends
   var mem_trash = try arena.pushArray(u8, 5);
   @memset(mem_trash, 0x42);
   
-  printTableMetadata(map);
-  base.debugPrintMem(map.metadata[0..64], 'X');
+  // printTableMetadata(map);
+  // base.debugPrintMem(map.metadata[0..38], 'X');
 
   // shows memory behind the metadata ptr, this will show the Header
-  const temp_ptr = map.metadata - 16;
-  base.debugPrintMem(temp_ptr[0..16], 'X');
+  // const temp_ptr = map.metadata - 16;
+  // base.debugPrintMem(temp_ptr[0..16], 'X');
 }
 
+test "DataOrientedSeperate" {
+  var arena = try Arena.init();
 
+  const V: type = u32;
+  var map = MapDataOrientedSeperate(V).init(&arena, 128);
 
-// You will need to make sure you dont insert beyond load factor.
+  for (0..100) |key| {
+    try map.insertAssumeNoMember(@intCast(u32, key), 0xCCCCCCCC, linearProbe);
+  }
+
+  for (0..150) |key| {
+    _ = try map.get(@intCast(u32, key), linearProbe);
+  }
+
+  for (0..150) |key| {
+    _ = try map.remove(@intCast(u32, key), linearProbe);
+  }
+
+  // shows where the map's memory region ends
+  var mem_trash = try arena.pushArray(u8, 5);
+  @memset(mem_trash, 0x42);
+  
+  // printTableMetadata(map);
+  // base.debugPrintMem(map.metadata[0..42], 'X');
+
+  // shows memory behind the metadata ptr, this will show the Header
+  // const temp_ptr = map.metadata - 24;
+  // base.debugPrintMem(temp_ptr[0..16], 'X');
+}
+
+// I expect the variants that do not segregate wil be faster for individual finds as no cash eviction needed
+// for looking up a found items value, and remember probing strategy won't require us to look very far.
+// but what if you're doing operations in a loop.. if you segregate you could do something fancy like return
+// a list of all the inexes appropriate for the various insertions, then loop over the segregated values array
+// and populate values all at once.. this will not work if the arrays need to grow, in which case earlier keys
+// inserted will be placed into the new array at different indexes than what you saved in your return list.
+// (if we can ensureCapacity - easy enough, then this method is dope. (you'd want to sort the indexes)).
+// but realize that this too is just a win if we're not inserting but just doing retrievals!
+
+// try batching with and without sorting the result of the first pass
+
+// You will need to make sure you don't insert beyond load factor.
 // if you use a power of two table size, that may create cycles for alternateProbe
 
 
-/////////////////////////////
-// TODO(mathias): think about how to use this API for sets
-
+// for the tests, include the std library HashMap. Make sure it doesn't grow by presettign the capacity
 
 pub fn main() !void
 {

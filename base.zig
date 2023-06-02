@@ -27,6 +27,10 @@ pub fn debugPrintX(text: []const u8, data: anytype) void {
   print("{s} {X}\n", .{ text, data });
 }
 
+pub fn debugPrintB(text: []const u8, data: anytype) void {
+  print("{s} {b}\n", .{ text, data });
+}
+
 pub fn debugPrintAny(text: []const u8, data: anytype) void {
   print("{s} {any}\n", .{ text, data });
 }
@@ -188,24 +192,38 @@ pub fn Arena() type
       os.munmap(self.base_memory);
     }
 
-    pub fn push(self: *Self, comptime T: type, num_bytes: usize) ![]T
+    pub fn pushArray(self: *Self, comptime T: type, count: usize) ![]align(@alignOf(T)) T
+    {
+      return self.push(T, @alignOf(T), count * @sizeOf(T));
+    }
+
+    pub fn pushArrayAligned(self: *Self, comptime T: type, comptime alignment: u32, count: usize)
+      ![]align(alignment) T
+    {
+      return self.push(T, alignment, count * @sizeOf(T));
+    }
+
+    fn push(self: *Self, comptime T: type, comptime alignment: u32, num_bytes: usize)
+      ![]align(alignment) T
     {
       const start_addr = @ptrToInt(self.base_memory.ptr) + self.curr_pos;
-      const start_alig = mem.alignForward(start_addr, @alignOf(T));
+      const start_alig = mem.alignForward(start_addr, alignment);
       const end_mem = @ptrToInt(self.base_memory.ptr) + self.base_memory.len;
 
       if (start_alig + num_bytes <= end_mem) {
         const padding = start_alig - start_addr;
         self.curr_pos += padding + num_bytes;
-        return @intToPtr([*]T, start_alig)[0 .. num_bytes/@sizeOf(T)];
+        return @intToPtr([*]align(alignment) T, start_alig)[0 .. num_bytes/@sizeOf(T)];
       } else {
         return error.NotEnoughMemory;
       }
     }
 
-    pub fn pushArray(self: *Self, comptime T: type, count: usize) ![]T
+    pub fn popAmount(self: *Self, num_bytes: usize) !void
     {
-      return self.push(T, count * @sizeOf(T));
+      if (num_bytes > self.curr_pos) return error.AttemptToFreeBeyondTotalAllocation;
+
+      return self.popTo(self.curr_pos - num_bytes);
     }
 
     fn popTo(self: *Self, pos: usize) !void
@@ -227,13 +245,6 @@ pub fn Arena() type
       }
 
       self.curr_pos = pos;
-    }
-
-    pub fn popAmount(self: *Self, num_bytes: usize) !void
-    {
-      if (num_bytes > self.curr_pos) return error.AttemptToFreeBeyondTotalAllocation;
-
-      return self.popTo(self.curr_pos - num_bytes);
     }
 
     /// An save-point for our Arena.
@@ -340,23 +351,13 @@ pub fn Arena() type
 // the padding of the larger of key/value, potentially 8 bytes will be needed to store 2 what is essentially,
 // just 2 bits of information (empty, full, tombstone).
 
-// NOTE(mathias): let's do 1) metadata and key/values together (so no dummie T); 
-// 2) metadata and key/values segregated (no dummies needed)
-//
-// I expect the variants that do not segregate wil be faster for individual finds as no cash eviction needed
-// for looking up a found items value, and remember probing strategy won't require us to look very far.
-// but what if you're doing operations in a loop.. if you segregate you could do something fancy like return
-// a list of all the inexes appropriate for the various insertions, then loop over the segregated values array
-// and populate values all at once.. this will not work if the arrays need to grow, in which case earlier keys
-// inserted will be placed into the new array at different indexes than what you saved in your return list.
-// (if we can ensureCapacity - easy enough, then this method is dope. (you'd want to sort the indexes)).
-// but realize that this too is just a win if we're not inserting but just doing retrievals!
-
-
 
 /////////////////////////////
 // TODO(mathias): if we implement with a power of two table size.. we can replace:
 // value % capacity, with value & (capacity -1).
 
 /////////////////////////////
-// TODO(mathias): build an api for pushArray but where we can pick custom alignment
+// TODO(mathias): when we design our set api we're going to want to be careful..not sure
+// how the void value will impact the state of some of the internals.
+/////////////////////////////
+// TODO(mathias): think about how to use this API for sets

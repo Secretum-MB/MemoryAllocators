@@ -140,6 +140,12 @@ pub fn Arena() type
     const Self = @This();
     const DEFAULT_RESERVE_SIZE = GB(1);
 
+
+    pub fn getPosition(self: *Self) usize
+    {
+      return self.curr_pos;
+    }
+
     /// Initialize Arena with the default amount of reserved memory
     pub fn init() !Self
     {
@@ -361,3 +367,7 @@ pub fn Arena() type
 // how the void value will impact the state of some of the internals.
 /////////////////////////////
 // TODO(mathias): think about how to use this API for sets
+
+// do a final comparison test between mine and stdlib where we're both using pow2 table sizes
+
+// try changing from indexing into to ptr arithmetic (for final version only)

@@ -218,17 +218,6 @@ test "probing count performance on table filling"
   }
 }
 
-
-
-/////////////////////////////
-// NOTE(mathias): Below we implement 4 different hash tables. Here are the tests to do:
-// 1. time to insert 1k, 100k, 200k,.. unique keys into the table.
-// 2. ''  ''  lookup  ''    '' keys that are in the table.
-// 3. ''  ''  lookup  ''    '' keys that are NOT in the table.
-// 4. '' remove a randomly chosen 1/2 of the 1k, 100k, .. elements from the table.
-// 5. compare tables against the segregated's ability to batch key/value lookup.
-// 6. should we do tests where the table starts at a given load bearing?
-
 //
 // All HashMaps will use u32 as their Keys, for simplicity, but also ints are common keys.
 //
@@ -255,11 +244,11 @@ pub fn MapCarruthTogether(comptime V: type) type
       key:   u32 = key_empty,
       value: V   = undefined,
 
-      fn isAvailable(self: *Entry) bool {
+      fn isAvailable(self: Entry) bool {
         return self.key < 2;
       }
 
-      fn isEmpty(self: *Entry) bool {
+      fn isEmpty(self: Entry) bool {
         return self.key == key_empty;
       }
 
@@ -413,6 +402,24 @@ pub fn MapCarruthSeperate(comptime V: type) type {
       while (self.keys[idx] != key_empty) {
         if (key == self.keys[idx]) {
           return self.values[idx];
+        }
+        probe_cnt += 1;
+        idx = hashGivenPos(hashed, probe_strategy(probe_cnt), self.capacity);
+      }
+
+      return null;
+    }
+
+    pub fn getIndex(self: *Self, key: u32, probe_strategy: *const fn(i32)i32) !?u32
+    {
+      if (key == 0 or key == 1) return error.TheseKeyValuesAreReserved;
+
+      const hashed = hash(u32, key);
+      var probe_cnt: i32 = 0;
+      var idx = hashGivenPos(hashed, probe_strategy(probe_cnt), self.capacity);
+      while (self.keys[idx] != key_empty) {
+        if (key == self.keys[idx]) {
+          return @intCast(u32, idx);
         }
         probe_cnt += 1;
         idx = hashGivenPos(hashed, probe_strategy(probe_cnt), self.capacity);
@@ -758,6 +765,34 @@ pub fn MapDataOrientedSeperate(comptime V: type) type
       return null;
     }
 
+    pub fn getIndex(self: *Self, key: u32, probe_strategy: *const fn(i32)i32) !?u32
+    {
+      const table_capacity = self.header().capacity;
+      const hashed = hash(u32, key);
+      const fingerprint = Metadata.takeFingerprint(hashed);
+      var probe_cnt: i32 = 0;
+      var idx = hashGivenPos(hashed, probe_strategy(probe_cnt), table_capacity);
+
+      while (!self.metadata[idx].isEmpty()) {
+        if (self.metadata[idx].isFilled() and 
+            fingerprint == self.metadata[idx].fingerprint)
+        {
+          if (key == self.header().keys[idx]) {
+            return @intCast(u32, idx);
+          }
+        }
+        probe_cnt += 1;
+        idx = hashGivenPos(hashed, probe_strategy(probe_cnt), table_capacity);
+      }
+
+      return null;
+    }
+
+    pub fn getValFromIndex(self: *Self, index: u32) V
+    {
+      return self.header().values[index];
+    }
+
     pub fn remove(self: *Self, key: u32, probe_strategy: *const fn(i32)i32) !bool
     {
       const table_capacity = self.header().capacity;
@@ -789,6 +824,44 @@ pub fn MapDataOrientedSeperate(comptime V: type) type
       const make_align = @alignCast(@alignOf(Header), self.metadata);
       const make_mutable = @ptrCast([*]Header, make_align); 
       return @ptrCast(*Header, (make_mutable - 1)); // 1: in units of header size
+    }
+  };
+}
+
+
+// just a wrapper around the std library HashMap, to give it same API
+//
+fn MapStdLibHashTable(comptime V: type) type {
+  return struct {
+    table: std.AutoHashMap(u32, V),
+
+    const Self = @This();
+
+    pub fn init(arena: *Arena, num_buckets: u32) @This()
+    {
+      var allocator = arena.allocator();
+      var map = std.AutoHashMap(u32, V).init(allocator);
+      map.ensureTotalCapacity(num_buckets) catch unreachable;
+      return Self { .table = map };
+    }
+
+    pub fn insertAssumeNoMember(self: *@This(), key: u32, value: V,
+                                probe_strategy: *const fn(i32)i32) !void
+    {
+      _ = probe_strategy;
+      self.table.putAssumeCapacityNoClobber(key, value);
+    }
+
+    pub fn get(self: *Self, key: u32, probe_strategy: *const fn(i32)i32) !?V
+    {
+      _ = probe_strategy;
+      return self.table.get(key);
+    }
+
+    pub fn remove(self: *Self, key: u32, probe_strategy: *const fn(i32)i32) !bool
+    {
+      _ = probe_strategy;
+      return self.table.remove(key);
     }
   };
 }
@@ -906,23 +979,290 @@ test "DataOrientedSeperate" {
   // base.debugPrintMem(temp_ptr[0..16], 'X');
 }
 
-// I expect the variants that do not segregate wil be faster for individual finds as no cash eviction needed
-// for looking up a found items value, and remember probing strategy won't require us to look very far.
-// but what if you're doing operations in a loop.. if you segregate you could do something fancy like return
-// a list of all the inexes appropriate for the various insertions, then loop over the segregated values array
-// and populate values all at once.. this will not work if the arrays need to grow, in which case earlier keys
-// inserted will be placed into the new array at different indexes than what you saved in your return list.
-// (if we can ensureCapacity - easy enough, then this method is dope. (you'd want to sort the indexes)).
-// but realize that this too is just a win if we're not inserting but just doing retrievals!
+test "stdLibraryWrapper" {
+  var arena = try Arena.init();
+  // const arena_pos = arena.getPosition();
 
-// try batching with and without sorting the result of the first pass
+  const V: type = u32;
+  var map = MapStdLibHashTable(V).init(&arena, 1250);
 
-// You will need to make sure you don't insert beyond load factor.
-// if you use a power of two table size, that may create cycles for alternateProbe
+  for (0..100) |key| {
+    _ = try map.insertAssumeNoMember(@intCast(u32, key), 0xFF, linearProbe);
+  }
+
+  for (0..150) |key| {
+    _ = try map.get(@intCast(u32, key), linearProbe);
+  }
+
+  for (0..150) |key| {
+    _ = try map.remove(@intCast(u32, key), triangularProbe);
+  }
+
+  // const arena_end = arena.getPosition();
+  // base.debugPrintMem(arena.base_memory[arena_pos..arena_end], 'X');
+}
 
 
-// for the tests, include the std library HashMap. Make sure it doesn't grow by presettign the capacity
+/////////////////////////////
+// NOTE(mathias): Below we implement 4 different hash tables. Here are the tests to do:
+// 1. time to insert 1k, 100k, 200k,.. unique keys into the table.
+// 2. ''  ''  lookup  ''    '' keys that are in the table.
+// 3. ''  ''  lookup  ''    '' keys that are NOT in the table.
+// 4. '' remove a randomly chosen 1/2 of the 1k, 100k, .. elements from the table.
+// 5. compare tables against the segregated's ability to batch key/value lookup.
+
+
+fn getTableSizeGivenLoad(capacity: u32, max_load_factor: u32) u32
+{
+  return @floatToInt(u32, @intToFloat(f32, capacity) * (100 / @intToFloat(f32, max_load_factor)));
+}
+
+fn findMedian(array: []f32) f32
+{
+  std.sort.insertion(f32, array, {}, std.sort.asc(f32));
+  return array[array.len/2];
+}
+
+const BigValuePayload = struct {
+  a: usize = 0,
+  b: usize = 0,
+  c: usize = 0,
+  d: usize = 0,
+  e: usize = 0,
+  f: usize = 0,
+  g: usize = 0,
+  h: usize = 0,
+  i: usize = 0,
+  j: usize = 0,
+  k: usize = 0,
+  l: usize = 0,
+  m: usize = 0,
+  n: usize = 0,
+  o: usize = 0,
+};
+
+
+fn timeUniqueInsertToFull() !void
+{
+  var arena = try Arena.init();
+  const save_point = arena.getScratch();
+
+  const number_of_insertions: [11]u32 = 
+    .{1_000, 100_000, 200_000, 300_000, 400_000, 500_000, 600_000,
+     700_000, 800_000, 900_000, 1_000_000};
+
+  // variables to tweak
+  const max_load_factor = 80;
+  const MapToTest = MapStdLibHashTable;
+  const probe_strategy = triangularProbe;
+  const MapValue = usize; // keep this I think; largest I'd use probably in real code
+  const num_trials: usize = 1;
+
+  {
+    var trial_result_buffer: [num_trials]f32 = undefined;
+    for (number_of_insertions) |num_insertions| {
+
+      for (0..num_trials) |trial_num| {
+        std.time.sleep(1 * std.time.ns_per_s);  // test is slower when we sleep, why?
+        
+        const num_buckets = getTableSizeGivenLoad(num_insertions, max_load_factor);
+        var table = MapToTest(MapValue).init(&arena, num_buckets);
+        base.debugPrintAny("table's capacity:", table.table.capacity());
+
+        var timer_start = try std.time.Timer.start();
+        for (2..num_insertions+2) |key| {
+          try table.insertAssumeNoMember(@intCast(u32, key), 0xFF, probe_strategy); 
+        }
+        const duration = timer_start.read();
+        const time_ms = @intToFloat(f32, duration) / std.time.ns_per_ms;
+
+        trial_result_buffer[trial_num] = time_ms;
+        arena.releaseScratch(save_point);
+      }
+      const median = findMedian(&trial_result_buffer);
+      std.debug.print("{} insertions; took {d:.2} ms\n", .{num_insertions, median});
+    }
+  }
+}
+
+
+fn timeSearch() !void
+{
+  var arena = try Arena.init();
+  const save_point = arena.getScratch();
+
+  var r_range = std.rand.DefaultPrng.init(0);
+  const r_gen = r_range.random();
+
+  const number_of_insertions: [11]u32 = 
+    .{1_000, 100_000, 200_000, 300_000, 400_000, 500_000, 600_000,
+     700_000, 800_000, 900_000, 1_000_000};
+
+  // variables to tweak
+  const max_load_factor = 80;
+  const MapToTest = MapStdLibHashTable;
+  const probe_strategy = triangularProbe;
+  const MapValue = u64; // keep this I think; largest I'd use probably in real code
+  const num_trials: usize = 13;
+
+  {
+    // var super_important_trick: ?u64 = undefined;
+    
+    for (number_of_insertions) |num_insertions| {
+      var trial_result_buffer: [num_trials]f32 = undefined;
+
+      // max table out with keys/values
+      const num_buckets = getTableSizeGivenLoad(num_insertions, max_load_factor);
+      var table = MapToTest(MapValue).init(&arena, num_buckets);
+      for (2..num_insertions+2) |key| {
+        try table.insertAssumeNoMember(@intCast(u32, key), 0xFF, probe_strategy); 
+      }
+
+      for (0..num_trials) |trial_num| {
+        std.time.sleep(0.5 * std.time.ns_per_s);  // test is slower when we sleep, why?
+
+        // record time to search for num_insertion number of keys In/NotIn Map
+        var timer_start = try std.time.Timer.start();
+        for (0..num_insertions) |_| {
+          _ = try table.get(r_gen.uintLessThanBiased(u32, num_insertions)+num_insertions+2, probe_strategy);
+        }
+        const duration = timer_start.read();
+        const time_ms = @intToFloat(f32, duration) / std.time.ns_per_ms;
+
+        trial_result_buffer[trial_num] = time_ms;
+      }
+      arena.releaseScratch(save_point);
+      const median = findMedian(&trial_result_buffer);
+      std.debug.print("{} searches; took {d:.2} ms\n", .{num_insertions, median});
+      // base.debugPrintAny("trick:", super_important_trick);
+    }
+  }
+}
+
+
+fn timeDelete() !void
+{
+  var arena = try Arena.init();
+  const save_point = arena.getScratch();
+
+  var r_range = std.rand.DefaultPrng.init(0);
+  const r_gen = r_range.random();
+
+  const number_of_insertions: [11]u32 = 
+    .{1_000, 100_000, 200_000, 300_000, 400_000, 500_000, 600_000,
+     700_000, 800_000, 900_000, 1_000_000};
+
+  // variables to tweak
+  const max_load_factor = 80;
+  const MapToTest = MapStdLibHashTable;
+  const probe_strategy = triangularProbe;
+  const MapValue = u64; // keep this I think; largest I'd use probably in real code
+  const num_trials: usize = 13;
+
+  {
+    var super_important_trick: bool = undefined;
+    
+    for (number_of_insertions) |num_insertions| {
+      var trial_result_buffer: [num_trials]f32 = undefined;
+
+      // max table out with keys/values
+      const num_buckets = getTableSizeGivenLoad(num_insertions, max_load_factor);
+      var table = MapToTest(MapValue).init(&arena, num_buckets);
+      for (2..num_insertions+2) |key| {
+        try table.insertAssumeNoMember(@intCast(u32, key), 0xFF, probe_strategy); 
+      }
+
+      for (0..num_trials) |trial_num| {
+        std.time.sleep(0.25 * std.time.ns_per_s);  // test is slower when we sleep, why?
+
+        // record time to search for num_insertion number of keys In/NotIn Map
+        var timer_start = try std.time.Timer.start();
+        for (0..num_insertions/2) |_| {
+          super_important_trick = try table.remove(r_gen.uintLessThanBiased(u32, num_insertions)+2, probe_strategy);
+        }
+        const duration = timer_start.read();
+        const time_ms = @intToFloat(f32, duration) / std.time.ns_per_ms;
+
+        trial_result_buffer[trial_num] = time_ms;
+      }
+      arena.releaseScratch(save_point);
+      const median = findMedian(&trial_result_buffer);
+      std.debug.print("{} searches; took {d:.2} ms\n", .{num_insertions, median});
+      base.debugPrintAny("trick:", super_important_trick);
+    }
+  }
+}
+
+
+// When the keys and values are segregated the door opens for us to batch our work with keys and values into
+// different steps. We can loop over the keys to find their indexes and place them into an array, 
+// we can then sort it (or not) and loop over the values pulling them out as we go.
+// the idea is that you make more optimal use of your cache lines as you limit yourself to only touching keys,
+// and not values until you're done with the keys. However, without sorting this had no improvement, when I
+// stopped to sort in between, the results were much worse. Sorting is expensive. 
+fn timeBatchSearch() !void
+{
+  var arena = try Arena.init();
+  const save_point = arena.getScratch();
+
+  var r_range = std.rand.DefaultPrng.init(0);
+  const r_gen = r_range.random();
+
+  const number_of_insertions: [11]u32 = 
+    .{1_000, 100_000, 200_000, 300_000, 400_000, 500_000, 600_000,
+     700_000, 800_000, 900_000, 1_000_000};
+  
+  // variables to tweak
+  const max_load_factor = 80;
+  const MapToTest = MapDataOrientedSeperate;
+  const probe_strategy = triangularProbe;
+  const MapValue = u64; // keep this I think; largest I'd use probably in real code
+  const num_trials: usize = 7;
+
+  {
+    for (number_of_insertions) |num_insertions| {
+      var trial_result_buffer: [num_trials]f32 = undefined;
+      var idx_array = try arena.pushArray(u32, num_insertions);
+      var dummy_variable: MapValue = undefined;
+
+      // max table out with keys/values
+      const num_buckets = getTableSizeGivenLoad(num_insertions, max_load_factor);
+      var table = MapToTest(MapValue).init(&arena, num_buckets);
+      for (2..num_insertions+2) |key| {
+        try table.insertAssumeNoMember(@intCast(u32, key), 0xFF, probe_strategy); 
+      }
+
+      for (0..num_trials) |trial_num| {
+        std.time.sleep(1 * std.time.ns_per_s);  // test is slower when we sleep, why?
+
+        // record time to search for num_insertion number of keys In/NotIn Map
+        var timer_start = try std.time.Timer.start();
+        for (0..num_insertions) |i| {
+          idx_array[i] = (try table.getIndex(r_gen.uintLessThanBiased(u32, num_insertions)+2, probe_strategy)).?;
+        }
+        std.sort.pdq(u32, idx_array, {}, std.sort.asc(u32));
+        for (idx_array) |idx| {
+          dummy_variable = table.getValFromIndex(idx);
+        }
+        const duration = timer_start.read();
+        const time_ms = @intToFloat(f32, duration) / std.time.ns_per_ms;
+
+        trial_result_buffer[trial_num] = time_ms;
+      }
+      const median = findMedian(&trial_result_buffer);
+      std.debug.print("{} batched insertions; took {d:.2} ms\n", .{num_insertions, median});
+      arena.releaseScratch(save_point);
+    }
+  }
+}
+
+
 
 pub fn main() !void
 {
+  // try timeUniqueInsertToFull();
+  // try timeSearch();
+  // try timeDelete();
+  // try timeBatchSearch();
+
 }

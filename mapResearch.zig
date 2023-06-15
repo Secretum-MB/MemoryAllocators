@@ -664,9 +664,9 @@ pub fn MapDataOrientedSeperate(comptime V: type) type
         return self.used == 1;
       }
 
-      fn isTombstone(self: Metadata) bool {
-        return @bitCast(u8, self) == @bitCast(u8, slot_tombs);
-      }
+      // fn isTombstone(self: Metadata) bool {
+      //   return @bitCast(u8, self) == @bitCast(u8, slot_tombs);
+      // }
 
       fn takeFingerprint(hashed: u64) u7 {
         return @truncate(u7, hashed >> (64-7));
